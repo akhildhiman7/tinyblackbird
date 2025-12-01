@@ -39,7 +39,7 @@ from jax_train_utils import (
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
-out_dir = 'out_jax'
+out_dir = os.path.abspath('out_jax')
 eval_interval = 2000
 log_interval = 1
 eval_iters = 200
@@ -146,6 +146,21 @@ if os.path.exists(meta_path):
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout)
 
+# Define make_eval_step before it's used
+def make_eval_step(apply_fn):
+    """Create a JIT-compiled eval step with the apply_fn baked in."""
+    @jit
+    def eval_step(params, inputs, targets):
+        """Single evaluation step."""
+        _, loss = apply_fn(
+            {'params': params},
+            inputs,
+            targets=targets,
+            train=False
+        )
+        return loss
+    return eval_step
+
 if init_from == 'scratch':
     print("Initializing a new model from scratch")
     if meta_vocab_size is None:
@@ -197,6 +212,9 @@ elif init_from == 'resume':
 else:
     raise ValueError(f"init_from='{init_from}' not supported in JAX version (only 'scratch' and 'resume')")
 
+# Initialize eval_step with the model's apply_fn
+eval_step = make_eval_step(state.apply_fn)
+
 # Create JIT-compiled training functions
 # (replaces: model = torch.compile(model))
 print("JIT compiling training functions...")
@@ -222,18 +240,6 @@ def apply_gradients(state, grads):
     """Apply accumulated gradients."""
     return state.apply_gradients(grads=grads)
 
-# Eval function (replaces: @torch.no_grad() estimate_loss)
-@jit
-def eval_step(params, apply_fn, inputs, targets):
-    """Single evaluation step."""
-    _, loss = apply_fn(
-        {'params': params},
-        inputs,
-        targets=targets,
-        train=False
-    )
-    return loss
-
 def estimate_loss():
     """Estimate loss on train and val sets."""
     out = {}
@@ -244,7 +250,7 @@ def estimate_loss():
                 data_dir, split, batch_size, block_size, 
                 jax.random.fold_in(rng, iter_num)
             )
-            loss = eval_step(state.params, state.apply_fn, X, Y)
+            loss = eval_step(state.params, X, Y)
             losses.append(float(loss))
         out[split] = np.mean(losses)
     return out
@@ -309,7 +315,7 @@ while True:
     
     # Forward backward update with gradient accumulation
     # (replaces: loss.backward(), scaler.scale(loss).backward())
-    accumulated_grads = jax.tree_map(jnp.zeros_like, state.params)
+    accumulated_grads = jax.tree.map(jnp.zeros_like, state.params)
     total_loss = 0.0
     
     for micro_step in range(gradient_accumulation_steps):
@@ -318,7 +324,7 @@ while True:
         loss, grads = train_step(state, X, Y, step_rng)
         
         # Accumulate gradients
-        accumulated_grads = jax.tree_map(
+        accumulated_grads = jax.tree.map(
             lambda acc, g: acc + g / gradient_accumulation_steps,
             accumulated_grads,
             grads
@@ -332,7 +338,7 @@ while True:
     if grad_clip > 0.0:
         grad_norm = jnp.sqrt(sum(jnp.sum(g ** 2) for g in jax.tree_util.tree_leaves(accumulated_grads)))
         clip_factor = jnp.minimum(1.0, grad_clip / (grad_norm + 1e-6))
-        accumulated_grads = jax.tree_map(lambda g: g * clip_factor, accumulated_grads)
+        accumulated_grads = jax.tree.map(lambda g: g * clip_factor, accumulated_grads)
     
     # Apply gradients (replaces: optimizer.step())
     state = apply_gradients(state, accumulated_grads)
