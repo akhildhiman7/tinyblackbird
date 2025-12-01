@@ -1,0 +1,37 @@
+# JAX/Flax dependencies for nanoGPT
+# Install with: pip install -r requirements_jax.txt
+
+# Core JAX packages
+jax>=0.4.20
+jaxlib>=0.4.20
+flax>=0.7.5
+optax>=0.1.7
+
+# For checkpointing and training utilities
+orbax-checkpoint>=0.4.0
+
+# Data processing (already in main requirements)
+numpy>=1.24.0
+
+# Optional: for logging
+# wandb>=0.15.0
+
+# Optional: for profiling
+# tensorboard>=2.14.0
+
+# Platform-specific installation notes:
+# 
+# GPU (CUDA 12):
+#   pip install -U "jax[cuda12]" flax optax orbax-checkpoint
+#
+# GPU (CUDA 11):  
+#   pip install -U "jax[cuda11]" flax optax orbax-checkpoint
+#
+# TPU:
+#   pip install -U "jax[tpu]" flax optax orbax-checkpoint -f https://storage.googleapis.com/jax-releases/libtpu_releases.html
+#
+# CPU only:
+#   pip install jax flax optax orbax-checkpoint
+#
+# Apple Silicon (M1/M2):
+#   pip install jax-metal flax optax orbax-checkpoint
